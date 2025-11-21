@@ -1,0 +1,150 @@
+---
+title: "Data Preprocessing Women's International Football Results"
+author: "Veerle Eeftink - van Leemput"
+date: "`r Sys.Date()`"
+format: 
+    html:
+        toc: true
+        smooth-scroll: true
+---
+
+# Load libraries
+```{r}
+library(dplyr)
+library(countrycode)
+library(tibble)
+```
+
+# Load data
+```{r}
+results <- read.csv("results.csv")
+goalscorers <- read.csv("goalscorers.csv")
+```
+
+# Data preprocessing
+We merge the two dataframes on `date`, `home_team`, `away_team` to get the goalscorers associated with each match. We then filter out any matches that do not have a known outcome (i.e., both `home_score` and `away_score` are `NA`).
+
+```{r}
+data_scorers <- results |>
+  left_join(goalscorers, by = c("date", "home_team", "away_team")) |>
+  filter(!is.na(home_score) | !is.na(away_score))
+```
+
+For visual appeal, we add country flags using Unicode characters. We create a function `get_flag` that takes country codes and returns the corresponding flag emoji. We then join this information to our main dataframe.
+
+```{r}
+# function to get the unicode for the country flag
+get_flag <- function(country_codes) {
+  sapply(country_codes, function(country_code) {
+    # question mark emoji
+    if (is.null(country_code) || is.na(country_code)) {
+      return(intToUtf8(10067))
+    } else {
+      intToUtf8(127397 + strtoi(charToRaw(toupper(country_code)), 16L))
+    }
+  }) |>
+    as.vector()
+}
+
+# some manual iso codes
+manual_iso <- tribble(
+  ~country.name.en      , ~iso2c ,
+  "England"             , "GB"   ,
+  "Scotland"            , "GB"   ,
+  "Wales"               , "GB"   ,
+  "Northern Ireland"    , "GB"   ,
+  "Republic of Ireland" , "IE"   ,
+  "China PR"            , "CN"   ,
+)
+
+country_codes <-
+  bind_rows(
+    select(countrycode::codelist, c(country.name.en, iso2c)),
+    manual_iso
+  )
+
+data_scorers <-
+  data_scorers |>
+  left_join(
+    country_codes,
+    by = c("home_team" = "country.name.en")
+  ) |>
+  mutate(country_flag_home = get_flag(iso2c)) |>
+  select(-iso2c) |>
+  left_join(
+    country_codes,
+    by = c("away_team" = "country.name.en")
+  ) |>
+  mutate(country_flag_away = get_flag(iso2c)) |>
+  select(-iso2c) |>
+  group_by(scorer, team) |>
+  summarise(
+    goals = sum(ifelse(team == home_team, home_score, away_score)),
+    penalties = sum(penalty),
+    # first match date
+    first_match = min(date),
+    # last match date
+    last_match = max(date),
+    country_flag = first(ifelse(
+      team == home_team,
+      country_flag_home,
+      country_flag_away
+    ))
+  ) |>
+  arrange(desc(goals))
+
+data_matches <- results |>
+  filter(!is.na(home_score) | !is.na(away_score)) |>
+  left_join(
+    country_codes,
+    by = c("home_team" = "country.name.en")
+  ) |>
+  mutate(country_flag_home = get_flag(iso2c)) |>
+  select(-iso2c) |>
+  left_join(
+    country_codes,
+    by = c("away_team" = "country.name.en")
+  ) |>
+  mutate(country_flag_away = get_flag(iso2c)) |>
+  select(-iso2c)
+```
+
+Next, we construct a country ranking based on the total number of goals scored by each country across all matches. This involves aggregating the data to count both matches played and goals scored for each country, regardless of whether they were the home or away team.
+
+```{r}
+country_rank <- data_matches |>
+  group_by(home_team) |>
+  summarise(
+    country = first(home_team),
+    matches = n(),
+    goals = sum(home_score),
+    country_flag = first(country_flag_home)
+  ) |>
+  bind_rows(
+    data_matches |>
+      group_by(away_team) |>
+      summarise(
+        country = first(away_team),
+        matches = n(),
+        goals = sum(away_score),
+        country_flag = first(country_flag_away)
+      )
+  ) |>
+  group_by(country) |>
+  summarise(
+    matches = sum(matches),
+    goals = sum(goals),
+    country_flag = first(country_flag)
+  ) |>
+  arrange(desc(goals))
+```
+
+# Save data for use in Shiny
+
+For maximum compatibility between Python and R we will save the data back again as .csv files, with the downside being that there is no strict preservation of types. Another option would be Parquet (for better type preservation) but that would require additional libraries in Python and R.
+
+```{r}
+write.csv(data_scorers, "soccer_scorers.csv")
+write.csv(data_matches, "soccer_matches.csv")
+write.csv(country_rank, "country_rank.csv")
+```
