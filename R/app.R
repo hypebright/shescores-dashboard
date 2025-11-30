@@ -29,12 +29,6 @@ ui <- page_sidebar(
   sidebar = sidebar(
     title = "Filters",
     width = "30%",
-    # Switch to show data with scorers only
-    input_switch(
-      id = "scorer_only",
-      label = "Show matches with scorers only",
-      value = FALSE
-    ),
     # Year filter
     sliderInput(
       inputId = "year_filter",
@@ -74,7 +68,13 @@ ui <- page_sidebar(
         countSelectedText = "{0} tournaments selected"
       ),
       multiple = TRUE
-    )
+    ),
+    # Switch to show data with scorers only
+    input_switch(
+      id = "scorer_only",
+      label = "Show matches with scorer data only",
+      value = FALSE
+    ),
   ),
   layout_columns(
     value_box(
