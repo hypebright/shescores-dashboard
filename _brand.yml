@@ -1,0 +1,32 @@
+meta:
+  name: soccer-theme
+  link: https://posit.co
+
+color:
+  palette:
+    primary: "#5d923f"      
+    secondary: "#295c58"    
+    success: "#80bc96"      
+    info: "#2c8d8f"         
+    warning: "#F2C94C"      
+    danger: "#FF6F61"       #
+    light: "#F8F9FA"
+    dark: "#343A40"
+    orange: "#ffa600"
+  foreground: dark
+  background: light
+  primary: primary
+  secondary: secondary
+
+typography:
+  fonts:
+    - family: Oswald
+      source: google
+    - family: Roboto Mono
+      source: google
+
+  base: Oswald
+  headings:
+    family: Oswald
+    weight: 600
+  monospace: Roboto Mono

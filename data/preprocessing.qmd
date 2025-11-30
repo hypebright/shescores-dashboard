@@ -7,25 +7,34 @@ format:
         toc: true
         smooth-scroll: true
 ---
+```{r}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
 
 # Load libraries
 ```{r}
 library(dplyr)
 library(countrycode)
 library(tibble)
+library(data.table)
+library(tidyr)
 ```
 
 # Load data
 ```{r}
-results <- read.csv("results.csv")
-goalscorers <- read.csv("goalscorers.csv")
+results <- read.csv("../data/results.csv")
+goalscorers <- read.csv("../data/goalscorers.csv")
 ```
 
 # Data preprocessing
-We merge the two dataframes on `date`, `home_team`, `away_team` to get the goalscorers associated with each match. We then filter out any matches that do not have a known outcome (i.e., both `home_score` and `away_score` are `NA`).
+We merge two dataframes on the `date`, `home_team`, and `away_team` to get the goalscorers associated with each match. We then filter out any matches that do not have a known outcome (i.e., both `home_score` and `away_score` are `NA`).
 
 ```{r}
-data_scorers <- results |>
+results_with_scorers <- results |>
   left_join(goalscorers, by = c("date", "home_team", "away_team")) |>
   filter(!is.na(home_score) | !is.na(away_score))
 ```
@@ -48,95 +57,149 @@ get_flag <- function(country_codes) {
 
 # some manual iso codes
 manual_iso <- tribble(
-  ~country.name.en      , ~iso2c ,
-  "England"             , "GB"   ,
-  "Scotland"            , "GB"   ,
-  "Wales"               , "GB"   ,
-  "Northern Ireland"    , "GB"   ,
-  "Republic of Ireland" , "IE"   ,
-  "China PR"            , "CN"   ,
+  ~country.name.en         , ~iso2c , ~continent ,
+  "England"                , "GB"   , "Europe"   ,
+  "Scotland"               , "GB"   , "Europe"   ,
+  "Wales"                  , "GB"   , "Europe"   ,
+  "Northern Ireland"       , "GB"   , "Europe"   ,
+  "Republic of Ireland"    , "IE"   , "Europe"   ,
+  "China PR"               , "CN"   , "Asia"     ,
+  "Hong Kong"              , "HK"   , "Asia"     ,
+  "Czech Republic"         , "CZ"   , "Europe"   ,
+  "Czechoslovakia"         , "CZ"   , "Europe"   ,
+  "Myanmar"                , "MM"   , "Asia"     ,
+  "Bosnia and Herzegovina" , "BA"   , "Europe"   ,
+  "Congo"                  , "CG"   , "Africa"   ,
 )
 
 country_codes <-
   bind_rows(
-    select(countrycode::codelist, c(country.name.en, iso2c)),
+    select(countrycode::codelist, c(country.name.en, iso2c, continent)),
     manual_iso
+  ) |>
+  na.omit()
+
+results_with_scorers <- results_with_scorers |>
+  left_join(
+    select(country_codes, country.name.en, iso2c),
+    by = c("home_team" = "country.name.en")
+  ) |>
+  mutate(country_flag_home = get_flag(iso2c)) |>
+  select(-iso2c) |>
+  left_join(
+    select(country_codes, country.name.en, iso2c),
+    by = c("away_team" = "country.name.en")
+  ) |>
+  mutate(country_flag_away = get_flag(iso2c)) |>
+  select(-iso2c) |>
+  left_join(
+    country_codes |>
+      select(country.name.en, continent),
+    by = c("country" = "country.name.en")
   )
-
-data_scorers <-
-  data_scorers |>
-  left_join(
-    country_codes,
-    by = c("home_team" = "country.name.en")
-  ) |>
-  mutate(country_flag_home = get_flag(iso2c)) |>
-  select(-iso2c) |>
-  left_join(
-    country_codes,
-    by = c("away_team" = "country.name.en")
-  ) |>
-  mutate(country_flag_away = get_flag(iso2c)) |>
-  select(-iso2c) |>
-  group_by(scorer, team) |>
-  summarise(
-    goals = sum(ifelse(team == home_team, home_score, away_score)),
-    penalties = sum(penalty),
-    # first match date
-    first_match = min(date),
-    # last match date
-    last_match = max(date),
-    country_flag = first(ifelse(
-      team == home_team,
-      country_flag_home,
-      country_flag_away
-    ))
-  ) |>
-  arrange(desc(goals))
-
-data_matches <- results |>
-  filter(!is.na(home_score) | !is.na(away_score)) |>
-  left_join(
-    country_codes,
-    by = c("home_team" = "country.name.en")
-  ) |>
-  mutate(country_flag_home = get_flag(iso2c)) |>
-  select(-iso2c) |>
-  left_join(
-    country_codes,
-    by = c("away_team" = "country.name.en")
-  ) |>
-  mutate(country_flag_away = get_flag(iso2c)) |>
-  select(-iso2c)
 ```
 
-Next, we construct a country ranking based on the total number of goals scored by each country across all matches. This involves aggregating the data to count both matches played and goals scored for each country, regardless of whether they were the home or away team.
+It would be nice to have the longitude and latitude of each city where a match was played. In order to achieve this, we will use the `cities15000.txt` dataset from GeoNames (https://download.geonames.org/export/dump/). This dataset contains all cities with a population of over 15,000 people, along with their geographical coordinates.
+
+There are few challenges to consider when merging the city data with our match data:
+- City names may not be unique (e.g., there are multiple cities named "Springfield" in the USA). To address this, we will also use the country code to help identify the correct city.
+- Some city names in our match data may not exactly match the names in the GeoNames dataset (e.g., "Frankfurt" vs. "Frankfurt am Main"). We will handle this by first attempting to match on the exact city name, and then using alternate names from the GeoNames dataset if the initial match fails.
 
 ```{r}
-country_rank <- data_matches |>
-  group_by(home_team) |>
-  summarise(
-    country = first(home_team),
-    matches = n(),
-    goals = sum(home_score),
-    country_flag = first(country_flag_home)
+cities <- fread(
+  "../data/cities15000.txt",
+  sep = "\t",
+  header = FALSE,
+  fill = TRUE,
+  quote = "",
+  na.strings = c("", "NA")
+)
+
+setnames(
+  cities,
+  c(
+    "geonameid",
+    "name",
+    "asciiname",
+    "alternatenames",
+    "latitude",
+    "longitude",
+    "feature_class",
+    "feature_code",
+    "country_code",
+    "cc2",
+    "admin1",
+    "admin2",
+    "admin3",
+    "admin4",
+    "population",
+    "elevation",
+    "dem",
+    "timezone",
+    "modification_date"
+  )
+)
+
+# Keep only the most “important” city per name/country
+cities_clean <- cities |>
+  group_by(name, country_code) |>
+  slice_max(population, n = 1, with_ties = FALSE) |>
+  ungroup()
+
+# Merge longitude and latitude into data_matches
+results_with_scorers <- results_with_scorers |>
+  # Change city Frankfurt to Frankfurt am Main to match the city database
+  mutate(city = ifelse(city == "Frankfurt", "Frankfurt am Main", city)) |>
+  # Add country code so we can match cities better
+  left_join(
+    country_codes |>
+      select(country.name.en, iso2c),
+    by = c("country" = "country.name.en")
   ) |>
-  bind_rows(
-    data_matches |>
-      group_by(away_team) |>
-      summarise(
-        country = first(away_team),
-        matches = n(),
-        goals = sum(away_score),
-        country_flag = first(country_flag_away)
-      )
+  rename(country_code = iso2c) |>
+  left_join(
+    cities_clean |>
+      select(name, country_code, latitude, longitude),
+    by = c("city" = "name", "country_code" = "country_code")
+  )
+
+# If NA's in latitude/longitude, try to match on alternate names
+results_with_scorers_na <- results_with_scorers |>
+  filter(is.na(latitude) | is.na(longitude)) |>
+  # remove latitude and longitude to avoid overwriting
+  select(-c(latitude, longitude)) |>
+  left_join(
+    cities_clean |>
+      select(alternatenames, country_code, population, latitude, longitude) |>
+      # split alternatenames into multiple rows
+      mutate(alternatenames = strsplit(as.character(alternatenames), ",")) |>
+      unnest(alternatenames) |>
+      filter(!is.na(alternatenames) & alternatenames != "") |>
+      # keep only the most populous city per alternate name/country
+      # this avoids multiple matches
+      # quite "expensive" operation, but managable for a one-off
+      group_by(alternatenames, country_code) |>
+      slice_max(population, n = 1, with_ties = FALSE) |>
+      ungroup(),
+    by = c("city" = "alternatenames", "country_code" = "country_code")
   ) |>
-  group_by(country) |>
-  summarise(
-    matches = sum(matches),
-    goals = sum(goals),
-    country_flag = first(country_flag)
-  ) |>
-  arrange(desc(goals))
+  select(names(results_with_scorers))
+
+results_with_scorers <- results_with_scorers |>
+  filter(!(is.na(latitude) | is.na(longitude))) |>
+  bind_rows(results_with_scorers_na)
+```
+
+We didn't manage to resolve all `NA`'s in latitude/longitude, but this should be sufficient for now. In total we have `r sum(is.na(results_with_scorers$latitude))` matches without coordinates, coming from `r length(unique(results_with_scorers$city[is.na(results_with_scorers$latitude)]))` unique cities.
+
+# Identifiers
+To facilitate filtering and grouping in the Shiny app, we create unique identifiers for matches (`match_id`). This is a combination of the date, home team, and away team.
+
+```{r}
+results_with_scorers <- results_with_scorers |>
+  mutate(
+    match_id = paste0(date, "_", home_team, "_vs_", away_team)
+  )
 ```
 
 # Save data for use in Shiny
@@ -144,7 +207,5 @@ country_rank <- data_matches |>
 For maximum compatibility between Python and R we will save the data back again as .csv files, with the downside being that there is no strict preservation of types. Another option would be Parquet (for better type preservation) but that would require additional libraries in Python and R.
 
 ```{r}
-write.csv(data_scorers, "soccer_scorers.csv")
-write.csv(data_matches, "soccer_matches.csv")
-write.csv(country_rank, "country_rank.csv")
+write.csv(results_with_scorers, "../data/results_with_scorers.csv")
 ```
