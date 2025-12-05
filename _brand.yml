@@ -4,8 +4,8 @@ meta:
 
 color:
   palette:
-    primary: "#5d923f"      
-    secondary: "#295c58"    
+    green: "#5d923f"      
+    turquoise: "#295c58"    
     success: "#80bc96"      
     info: "#2c8d8f"         
     warning: "#F2C94C"      
@@ -15,8 +15,8 @@ color:
     orange: "#ffa600"
   foreground: dark
   background: light
-  primary: primary
-  secondary: secondary
+  primary: green
+  secondary: turquoise
 
 typography:
   fonts:
