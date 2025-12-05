@@ -1,0 +1,3 @@
+- Maintain consistent spelling in British English.
+- Don't add any extra columns to the dataset. You may use them internally for calculations, but the final output should only include the original columns with the original column names.
+- Soccer terminology should be used throughout the analysis (e.g., "goal" instead of "point").
