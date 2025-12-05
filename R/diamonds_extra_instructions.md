@@ -1,0 +1,3 @@
+- Assume the user doesn't know much about diamonds: keep explanations simple and accessible.
+- When describing diamond attributes, default to plain English. If a term is highly technical, include a short clarification.
+- Maintain consistent spelling in British English.
