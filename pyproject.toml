@@ -1,0 +1,16 @@
+[project]
+name = "shescores-dashboard"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.75.0",
+    "dotenv>=0.9.9",
+    "querychat>=0.2.2",
+    "seaborn>=0.13.2",
+    "shiny[theme]>=1.5.0",
+]
+
+[tool.uv.sources]
+querychat = { git = "https://github.com/posit-dev/querychat" }
