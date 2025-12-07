@@ -5,8 +5,8 @@ import pandas as pd
 import plotly.express as px
 from shinywidgets import output_widget, render_widget
 import numpy as np
-from ipyleaflet import Map, Marker, Icon, basemaps, MarkerCluster
-from ipywidgets import HTML
+# from ipyleaflet import Map, Marker, Icon, basemaps, MarkerCluster
+# from ipywidgets import HTML
 
 # ===============================
 # Setup
@@ -274,58 +274,118 @@ def server(input, output, session):
 
     @render_widget
     def map():
-        # return base map without any data
-        return Map(
-            center=(0, 0),
-            zoom=2,
-            basemap=basemaps.CartoDB.Positron,
-        )
-
-    # When the filtered data changes, update the map
-    @reactive.effect
-    def _():
         df = filtered_data()
 
-        # remove all existing layers except the base layer
-        # layers are stored in map.widget.layers, and can be removed with map.widget.remove_layer()
-        for layer in map.widget.layers[1:]:
-            map.widget.remove_layer(layer)
-
-        # filter out rows with missing lat/lon
-        locations = df.dropna(subset=["latitude", "longitude"]).copy()
+        # drop missing coordinates
+        df = df.dropna(subset=["latitude", "longitude"]).copy()
 
         # add year column
-        locations["year"] = pd.to_datetime(locations["date"]).dt.year.astype(str)
+        df["year"] = pd.to_datetime(df["date"]).dt.year.astype(str)
 
-        # group by tournament + lat/lon/city and concatenate years (comma separated)
-        # avoid Renderer.__call_error
+        # group rows like your original code:
         grouped = (
-            locations.groupby(["tournament", "latitude", "longitude", "city"])["year"]
+            df.groupby(["tournament", "latitude", "longitude", "city"])["year"]
             .apply(lambda x: ", ".join(sorted(x.unique())))
             .reset_index()
             .rename(columns={"year": "years"})
         )
 
-        # add simple markers to app for each location
-        markers = []
-        for row in grouped.itertuples(index=False):
-            markers.append(
-                Marker(
-                    location=(row.latitude, row.longitude),
-                    icon=Icon(
-                        icon_url="https://openmoji.org/data/color/svg/26BD.svg",
-                        icon_size=[25, 25],
-                    ),
-                    popup=HTML(
-                        value=f"<b>{row.tournament}</b><br/>{row.city}<br/>Years: {row.years}"
-                    ),
-                )
-            )
+        # popup text equivalent
+        grouped["hover_text"] = (
+            "<b>"
+            + grouped["tournament"]
+            + "</b><br>"
+            + grouped["city"]
+            + "<br>"
+            + "Years: "
+            + grouped["years"]
+        )
 
-        # update map with new markers
-        print("Adding markers to map:", len(markers))
-        marker_cluster = MarkerCluster(markers=markers)
-        map.widget.add_layer(marker_cluster)
+        fig = px.scatter_map(
+            grouped,
+            lat="latitude",
+            lon="longitude",
+            hover_name="tournament",
+            hover_data={},
+            custom_data=["hover_text"],
+            zoom=1,
+            height=600,
+        )
+
+        # Use a good base map
+        fig.update_layout(
+            autosize=True,
+            mapbox_style="carto-positron",
+        )
+
+        fig.update_traces(
+            hovertemplate="%{customdata[0]}<extra></extra>",
+            cluster=dict(enabled=True),
+            # football look
+            marker=dict(
+                size=20,
+                symbol="circle",
+                color="#5d923f",
+            ),
+        )
+
+        return fig
+
+    # A lot if issues with shinywidgets and ipyleaflet, so using plotly instead
+    # @render_widget
+    # def map():
+    #     # return base map without any data
+    #     return Map(
+    #         center=(0, 0),
+    #         zoom=2,
+    #         basemap=basemaps.CartoDB.Positron,
+    #     )
+
+    # # When the filtered data changes, update the map
+    # @reactive.effect
+    # def _():
+    #     df = filtered_data()
+
+    #     # remove all existing layers except the base layer
+    #     # layers are stored in map.widget.layers, and can be removed with map.widget.remove_layer()
+    #     for layer in map.widget.layers[1:]:
+    #         map.widget.remove_layer(layer)
+
+    #     # filter out rows with missing lat/lon
+    #     locations = df.dropna(subset=["latitude", "longitude"]).copy()
+
+    #     # add year column
+    #     locations["year"] = pd.to_datetime(locations["date"]).dt.year.astype(str)
+
+    #     # group by tournament + lat/lon/city and concatenate years (comma separated)
+    #     # avoid Renderer.__call_error
+    #     grouped = (
+    #         locations.groupby(["tournament", "latitude", "longitude", "city"])["year"]
+    #         .apply(lambda x: ", ".join(sorted(x.unique())))
+    #         .reset_index()
+    #         .rename(columns={"year": "years"})
+    #     )
+
+    #     # add simple markers to app for each location
+    #     markers = []
+    #     for row in grouped.itertuples(index=False):
+    #         markers.append(
+    #             Marker(
+    #                 location=(row.latitude, row.longitude),
+    #                 icon=Icon(
+    #                     icon_url="https://openmoji.org/data/color/svg/26BD.svg",
+    #                     icon_size=[25, 25],
+    #                 ),
+    #                 popup=HTML(
+    #                     value=f"<b>{row.tournament}</b><br/>{row.city}<br/>Years: {row.years}"
+    #                 ),
+    #             )
+    #         )
+
+    #     # update map with new markers
+    #     print("Adding markers to map:", len(markers))
+    #     marker_cluster = MarkerCluster(markers=markers)
+    #     map.widget.add_layer(marker_cluster)
 
     @render.data_frame
     def results_table():
