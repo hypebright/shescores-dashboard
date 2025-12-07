@@ -1,0 +1,432 @@
+from shiny import App, reactive, render, ui, req
+from ratelimit import debounce
+from pathlib import Path
+import pandas as pd
+import plotly.express as px
+from shinywidgets import output_widget, render_widget
+import numpy as np
+from ipyleaflet import Map, Marker, Icon, basemaps, MarkerCluster
+from ipywidgets import HTML
+
+# ===============================
+# Setup
+# ===============================
+# read in data
+# note that for demo purposes this is in a top-level folder
+# normally, you would have this inside the folder that contains app.py
+results_with_scorers = pd.read_csv(
+    Path(__file__).parent.parent / "data/results_with_scorers.csv"
+)
+
+results_with_scorers["date"] = pd.to_datetime(results_with_scorers["date"])
+
+results_with_scorers = results_with_scorers[
+    (results_with_scorers["tournament"] != "Friendly")
+    & (results_with_scorers["date"] >= "2000-01-01")
+]
+
+# ===============================
+# UI
+# ===============================
+app_ui = ui.page_sidebar(
+    ui.sidebar(
+        ui.h4("Filters"),
+        ui.input_slider(
+            "year_filter",
+            "Select year range:",
+            min=int(results_with_scorers["date"].dt.year.min()),
+            max=int(results_with_scorers["date"].dt.year.max()),
+            value=[
+                int(results_with_scorers["date"].dt.year.min()),
+                int(results_with_scorers["date"].dt.year.max()),
+            ],
+            sep="",
+        ),
+        ui.input_selectize(
+            "continent_filter",
+            "Select continents:",
+            choices=sorted(
+                results_with_scorers["continent"].dropna().unique().tolist()
+            ),
+            selected="Europe",
+            multiple=True,
+        ),
+        ui.input_select(
+            "tournament_filter",
+            "Select tournaments:",
+            choices=[],
+            selected=[],
+            multiple=True,
+        ),
+        ui.input_switch(
+            "scorer_only", "Show matches with scorer data only", value=False
+        ),
+        width="30%",
+    ),
+    ui.layout_columns(
+        ui.value_box(title="Top scoring country", value=ui.output_text("top_country")),
+        ui.value_box(
+            "Top scorer",
+            ui.output_text("top_scorer"),
+            ui.output_text("top_scorer_missing"),
+        ),
+        ui.value_box(title="Total countries", value=ui.output_text("total_countries")),
+    ),
+    ui.br(),
+    ui.layout_columns(
+        ui.card(output_widget("map"), min_height="500px"),
+        ui.card(output_widget("overview"), min_height="500px"),
+    ),
+    ui.br(),
+    ui.layout_columns(
+        ui.card(
+            ui.output_data_frame("results_table"),
+            min_height="600px",
+        )
+    ),
+    title="She Scores ⚽️: Women's International Soccer Matches",
+    fillable=False,
+    theme=ui.Theme.from_brand(__file__),
+)
+
+
+# ===============================
+# Server
+# ===============================
+def server(input, output, session):
+    # Reactive filtered data based on inputs
+    @debounce(0.5)
+    @reactive.calc
+    def filtered_data():
+        req(len(input.continent_filter()) > 0)
+        req(len(input.tournament_filter()) > 0)
+
+        data = results_with_scorers.copy()
+        data = data[
+            (data["date"].dt.year >= input.year_filter()[0])
+            & (data["date"].dt.year <= input.year_filter()[1])
+            & (data["continent"].isin(input.continent_filter()))
+            & (data["tournament"].isin(input.tournament_filter()))
+        ]
+
+        if input.scorer_only():
+            data = data[data["scorer"].notna()]
+
+        return data
+
+    @render.text
+    def top_country():
+        df = filtered_data()
+        if df.empty:
+            return "No matches found"
+
+        # --- home teams ---
+        home = (
+            df.groupby(["date", "home_team", "tournament"])
+            .agg(
+                country=("home_team", "first"),
+                matches=("tournament", lambda x: x.nunique()),
+                goals=("home_score", "first"),
+                country_flag=("country_flag_home", "first"),
+            )
+            .reset_index(drop=True)
+        )
+
+        # --- away teams ---
+        away = (
+            df.groupby(["date", "away_team", "tournament"])
+            .agg(
+                country=("away_team", "first"),
+                matches=("tournament", lambda x: x.nunique()),
+                goals=("away_score", "first"),
+                country_flag=("country_flag_away", "first"),
+            )
+            .reset_index(drop=True)
+        )
+
+        # combine home + away rows
+        combined = pd.concat([home, away], ignore_index=True)
+
+        # final summarisation
+        top_country = (
+            combined.groupby("country")
+            .agg(
+                matches=("matches", "sum"),
+                goals=("goals", "sum"),
+                country_flag=("country_flag", "first"),
+            )
+            .reset_index()
+            .sort_values("goals", ascending=False)
+            .head(1)
+        )
+
+        # equivalent of paste0(country, country_flag)
+        result_string = (
+            top_country["country"].iloc[0] + top_country["country_flag"].iloc[0]
+        )
+
+        return result_string
+
+    @render.text
+    def top_scorer():
+        df = filtered_data()
+        if df.empty or df["scorer"].notna().sum() == 0:
+            return "No scorers found"
+
+        top_scorer = (
+            df[df["scorer"].notna()]
+            .assign(
+                country_flag=lambda x: np.where(
+                    x["team"] == x["home_team"],
+                    x["country_flag_home"],
+                    x["country_flag_away"],
+                )
+            )
+            .groupby(["scorer", "country_flag"])
+            .size()
+            .reset_index(name="goals")
+            .sort_values("goals", ascending=False)
+            .head(1)
+        )
+
+        result_string = (
+            top_scorer["scorer"].iloc[0] + " " + top_scorer["country_flag"].iloc[0]
+        )
+
+        return result_string
+
+    @render.text
+    def top_scorer_missing():
+        df = filtered_data()
+        if df.empty:
+            return ""
+
+        missing = df["scorer"].isna().sum()
+        total = len(df)
+        missing_scorer_pct = missing / total * 100
+
+        result_string = (
+            "Missing scorer data: " + str(round(missing_scorer_pct, 2)) + "%"
+        )
+
+        return result_string
+
+    @render.text
+    def total_countries():
+        df = filtered_data()
+        if df.empty:
+            return "0"
+
+        total_countries = (
+            df[["home_team", "away_team"]]
+            .melt(value_name="country")
+            .drop_duplicates(subset=["country"])
+            .shape[0]
+        )
+
+        return total_countries
+
+    @render_widget
+    def overview():
+        df = filtered_data()
+        if df.empty:
+            return px.scatter(title="No matches available for selected filters")
+
+        overview_df = (
+            df.groupby(df["date"].dt.year)
+            .size()
+            .reset_index(name="match_count")
+            .rename(columns={"date": "year"})
+        )
+
+        fig = px.line(
+            overview_df,
+            x="year",
+            y="match_count",
+            title="Matches over time",
+            labels={"year": "", "match_count": ""},
+            markers=True,
+        )
+
+        fig.update_traces(
+            line=dict(width=3, color="#0f0437"),
+            marker=dict(size=6, color="white", line=dict(width=2, color="#5470C6")),
+        )
+
+        fig.update_layout(
+            font=dict(family="Oswald, sans-serif", size=12, color="#343A40"),
+            title=dict(font=dict(size=22)),
+            showlegend=False,
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            xaxis=dict(
+                showgrid=False,
+                zeroline=False,
+            ),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor="lightgrey",
+                zeroline=False,
+            ),
+        )
+
+        return fig
+
+    @render_widget
+    def map():
+        # return base map without any data
+        return Map(
+            center=(0, 0),
+            zoom=2,
+            basemap=basemaps.CartoDB.Positron,
+        )
+
+    # When the filtered data changes, update the map
+    @reactive.effect
+    def _():
+        df = filtered_data()
+
+        # remove all existing layers except the base layer
+        # layers are stored in map.widget.layers, and can be removed with map.widget.remove_layer()
+        for layer in map.widget.layers[1:]:
+            map.widget.remove_layer(layer)
+
+        # filter out rows with missing lat/lon
+        locations = df.dropna(subset=["latitude", "longitude"]).copy()
+
+        # add year column
+        locations["year"] = pd.to_datetime(locations["date"]).dt.year.astype(str)
+
+        # group by tournament + lat/lon/city and concatenate years (comma separated)
+        # avoid Renderer.__call_error
+        grouped = (
+            locations.groupby(["tournament", "latitude", "longitude", "city"])["year"]
+            .apply(lambda x: ", ".join(sorted(x.unique())))
+            .reset_index()
+            .rename(columns={"year": "years"})
+        )
+
+        # add simple markers to app for each location
+        markers = []
+        for row in grouped.itertuples(index=False):
+            markers.append(
+                Marker(
+                    location=(row.latitude, row.longitude),
+                    icon=Icon(
+                        icon_url="https://openmoji.org/data/color/svg/26BD.svg",
+                        icon_size=[25, 25],
+                    ),
+                    popup=HTML(
+                        value=f"<b>{row.tournament}</b><br/>{row.city}<br/>Years: {row.years}"
+                    ),
+                )
+            )
+
+        # update map with new markers
+        print("Adding markers to map:", len(markers))
+        marker_cluster = MarkerCluster(markers=markers)
+        map.widget.add_layer(marker_cluster)
+
+    @render.data_frame
+    def results_table():
+        df = filtered_data()
+        if df.empty:
+            return pd.DataFrame()
+
+        def summarize_scorers(group):
+            # If all scorers are NA → return NA
+            if group["scorer"].isna().all():
+                return np.nan
+
+            # Build strings like: "Birgit Prinz (Germany at 16')"
+            parts = (
+                group.dropna(subset=["scorer"])
+                .apply(lambda r: f"{r.scorer} ({r.team} at {r.minute}')", axis=1)
+                .tolist()
+            )
+            return ", ".join(parts)
+
+        table_data = (
+            df.groupby(
+                [
+                    "date",
+                    "tournament",
+                    "home_team",
+                    "country_flag_home",
+                    "home_score",
+                    "away_score",
+                    "away_team",
+                    "country_flag_away",
+                ],
+                dropna=False,
+            )
+            .apply(summarize_scorers, include_groups=False)
+            .reset_index(name="scorers")
+        )
+
+        # Column names + making sure the flag is behind the country name
+        display_df = table_data.copy()
+        display_df["home_team"] = (
+            display_df["home_team"] + " " + display_df["country_flag_home"]
+        )
+        display_df["away_team"] = (
+            display_df["away_team"] + " " + display_df["country_flag_away"]
+        )
+        display_df = display_df.drop(columns=["country_flag_home", "country_flag_away"])
+        display_df = display_df.rename(
+            columns={
+                "date": "Date",
+                "tournament": "Tournament",
+                "home_team": "Home Team",
+                "home_score": "Home Score",
+                "away_score": "Away Score",
+                "away_team": "Away Team",
+                "scorers": "Scorers",
+            }
+        )
+
+        # Format date and sort by date descending
+        display_df["Date"] = display_df["Date"].dt.strftime("%Y-%m-%d")
+        display_df = display_df.sort_values("Date", ascending=False)
+
+        return render.DataTable(
+            display_df,
+            styles=[
+                # ----- column width rules -----
+                {"cols": [0], "style": {"min-width": "100px", "width": "100px"}},
+                {"cols": [1], "style": {"min-width": "200px"}},
+                {"cols": [2], "style": {"min-width": "150px"}},
+                {"cols": [3], "style": {"min-width": "100px"}},
+                {"cols": [4], "style": {"min-width": "100px"}},
+                {"cols": [5], "style": {"min-width": "150px"}},
+                {"cols": [6], "style": {"min-width": "300px", "white-space": "normal"}},
+                # ----- striped rows -----
+                # even rows
+                {
+                    "rows": list(range(0, 10_000, 2)),
+                    "style": {"background-color": "#e0e1e2"},
+                },
+            ],
+        )
+
+    # Update tournaments based on continent selection
+    @reactive.effect
+    def _():
+        req(input.continent_filter())
+
+        updated_tournaments = (
+            results_with_scorers[
+                results_with_scorers["continent"].isin(input.continent_filter())
+            ]["tournament"]
+            .unique()
+            .tolist()
+        )
+
+        ui.update_select(
+            "tournament_filter",
+            choices=sorted(updated_tournaments),
+            selected=sorted(updated_tournaments),
+        )
+
+
+app = App(app_ui, server)
