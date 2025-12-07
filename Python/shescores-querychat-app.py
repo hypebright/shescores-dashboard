@@ -1,4 +1,6 @@
 from shiny import App, reactive, render, ui, req
+from dotenv import load_dotenv
+from querychat import QueryChat
 from ratelimit import debounce
 from pathlib import Path
 import pandas as pd
@@ -7,6 +9,8 @@ from shinywidgets import output_widget, render_widget
 import numpy as np
 # from ipyleaflet import Map, Marker, Icon, basemaps, MarkerCluster
 # from ipywidgets import HTML
+
+load_dotenv()  # Loads key from the .env file
 
 # ===============================
 # Setup
@@ -25,46 +29,25 @@ results_with_scorers = results_with_scorers[
     & (results_with_scorers["date"] >= "2000-01-01")
 ]
 
+# 1. Initialize QueryChat with custom files
+shescores_greeting = Path(__file__).parent / "shescores_greeting.md"
+shescores_data_description = Path(__file__).parent / "shescores_data_description.md"
+shescores_extra_instructions = Path(__file__).parent / "shescores_extra_instructions.md"
+
+qc = QueryChat(
+    results_with_scorers,
+    "results_with_scorers",
+    client="anthropic/claude-sonnet-4-5",
+    greeting=shescores_greeting,
+    data_description=shescores_data_description,
+    extra_instructions=shescores_extra_instructions,
+)
+
 # ===============================
 # UI
 # ===============================
 app_ui = ui.page_sidebar(
-    ui.sidebar(
-        ui.h4("Filters"),
-        ui.input_slider(
-            "year_filter",
-            "Select year range:",
-            min=int(results_with_scorers["date"].dt.year.min()),
-            max=int(results_with_scorers["date"].dt.year.max()),
-            value=[
-                int(results_with_scorers["date"].dt.year.min()),
-                int(results_with_scorers["date"].dt.year.max()),
-            ],
-            sep="",
-        ),
-        ui.input_selectize(
-            "continent_filter",
-            "Select continents:",
-            choices=sorted(
-                results_with_scorers["continent"].dropna().unique().tolist()
-            ),
-            selected=sorted(
-                results_with_scorers["continent"].dropna().unique().tolist()
-            ),
-            multiple=True,
-        ),
-        ui.input_select(
-            "tournament_filter",
-            "Select tournaments:",
-            choices=[],
-            selected=[],
-            multiple=True,
-        ),
-        ui.input_switch(
-            "scorer_only", "Show matches with scorer data only", value=False
-        ),
-        width="30%",
-    ),
+    qc.sidebar(),
     ui.layout_columns(
         ui.value_box(title="Top scoring country", value=ui.output_text("top_country")),
         ui.value_box(
@@ -96,29 +79,12 @@ app_ui = ui.page_sidebar(
 # Server
 # ===============================
 def server(input, output, session):
-    # Reactive filtered data based on inputs
-    @debounce(0.5)
-    @reactive.calc
-    def filtered_data():
-        req(len(input.continent_filter()) > 0)
-        req(len(input.tournament_filter()) > 0)
-
-        data = results_with_scorers.copy()
-        data = data[
-            (data["date"].dt.year >= input.year_filter()[0])
-            & (data["date"].dt.year <= input.year_filter()[1])
-            & (data["continent"].isin(input.continent_filter()))
-            & (data["tournament"].isin(input.tournament_filter()))
-        ]
-
-        if input.scorer_only():
-            data = data[data["scorer"].notna()]
-
-        return data
+    # Reactive filtered data based on query
+    filtered_data = qc.server()
 
     @render.text
     def top_country():
-        df = filtered_data()
+        df = filtered_data.df()
         if df.empty:
             return "No matches found"
 
@@ -171,7 +137,7 @@ def server(input, output, session):
 
     @render.text
     def top_scorer():
-        df = filtered_data()
+        df = filtered_data.df()
         if df.empty or df["scorer"].notna().sum() == 0:
             return "No scorers found"
 
@@ -199,7 +165,7 @@ def server(input, output, session):
 
     @render.text
     def top_scorer_missing():
-        df = filtered_data()
+        df = filtered_data.df()
         if df.empty:
             return ""
 
@@ -215,7 +181,7 @@ def server(input, output, session):
 
     @render.text
     def total_countries():
-        df = filtered_data()
+        df = filtered_data.df()
         if df.empty:
             return "0"
 
@@ -230,7 +196,7 @@ def server(input, output, session):
 
     @render_widget
     def overview():
-        df = filtered_data()
+        df = filtered_data.df()
         if df.empty:
             return px.scatter(title="No matches available for selected filters")
 
@@ -276,7 +242,7 @@ def server(input, output, session):
 
     @render_widget
     def map():
-        df = filtered_data()
+        df = filtered_data.df()
 
         # drop missing coordinates
         df = df.dropna(subset=["latitude", "longitude"]).copy()
@@ -346,7 +312,7 @@ def server(input, output, session):
     # # When the filtered data changes, update the map
     # @reactive.effect
     # def _():
-    #     df = filtered_data()
+    #     df = filtered_data.df()
 
     #     # remove all existing layers except the base layer
     #     # layers are stored in map.widget.layers, and can be removed with map.widget.remove_layer()
@@ -391,7 +357,7 @@ def server(input, output, session):
 
     @render.data_frame
     def results_table():
-        df = filtered_data()
+        df = filtered_data.df()
         if df.empty:
             return pd.DataFrame()
 
