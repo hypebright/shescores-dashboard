@@ -24,6 +24,12 @@ soccer_icon <- makeIcon(
   iconHeight = 25
 )
 
+# apply global echarts font
+e_common(
+  font_family = "Oswald, sans-serif"
+)
+
+
 # ===============================
 # UI
 # ===============================
@@ -108,7 +114,6 @@ ui <- page_sidebar(
   ),
   layout_columns(
     card(
-      title = "Match Results",
       reactableOutput("results_table"),
       min_height = "700px"
     )

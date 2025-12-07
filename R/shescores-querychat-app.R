@@ -34,6 +34,11 @@ soccer_icon <- makeIcon(
   iconHeight = 25
 )
 
+# apply global echarts font
+e_common(
+  font_family = "Oswald, sans-serif"
+)
+
 # ===============================
 # UI
 # ===============================
