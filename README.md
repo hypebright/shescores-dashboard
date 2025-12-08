@@ -2,6 +2,8 @@
 
 This repository contains a Shiny for R and Shiny for Python app that is called "SheScores". This dashboard allows users to explore women soccer match results from international competitions.
 
+![](./images/shescores-app-r.png)
+
 ## About the data
 
 SheScores uses data related to Women's International Football results ⚽️. The data is available in the `data` folder and it contains some pre-processing steps. The data is sourced from [Kaggle](https://www.kaggle.com/datasets/martj42/womens-international-football-results?resource=download).
