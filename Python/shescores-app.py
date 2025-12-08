@@ -1,4 +1,5 @@
 from shiny import App, reactive, render, ui, req
+from dotenv import load_dotenv
 from ratelimit import debounce
 from pathlib import Path
 import pandas as pd
@@ -7,6 +8,8 @@ from shinywidgets import output_widget, render_widget
 import numpy as np
 # from ipyleaflet import Map, Marker, Icon, basemaps, MarkerCluster
 # from ipywidgets import HTML
+
+load_dotenv()  # Loads key from the .env file
 
 # ===============================
 # Setup
@@ -236,9 +239,9 @@ def server(input, output, session):
 
         overview_df = (
             df.groupby(df["date"].dt.year)
-            .size()
-            .reset_index(name="match_count")
-            .rename(columns={"date": "year"})
+            .agg(match_count=("match_id", "nunique"))
+            .rename_axis("year")  # sets the grouped index name
+            .reset_index()  # optional: turn the index back into a column
         )
 
         fig = px.line(
@@ -266,9 +269,10 @@ def server(input, output, session):
                 zeroline=False,
             ),
             yaxis=dict(
+                rangemode="tozero",
                 showgrid=True,
                 gridcolor="lightgrey",
-                zeroline=False,
+                zeroline=True,
             ),
         )
 

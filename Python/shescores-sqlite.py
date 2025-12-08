@@ -1,10 +1,10 @@
+from dotenv import load_dotenv
 from pathlib import Path
 from sqlalchemy import create_engine
 from querychat import QueryChat
 import pandas as pd
-from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv()  # Loads key from the .env file
 
 # From results_with_scorers.csv, create a SQLite database named shescores.db
 df_path = Path(__file__).parent.parent / "data/results_with_scorers.csv"
