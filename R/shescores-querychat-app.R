@@ -85,7 +85,7 @@ ui <- page_sidebar(
 # Server
 # ===============================
 server <- function(input, output, session) {
-  # Reactive filtered data based on inputs
+  # Reactive filtered data based on query
   filtered_data <- qc$server()
 
   output$top_country <- renderText({
