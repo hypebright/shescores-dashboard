@@ -12,7 +12,7 @@ library(ggplot2)
 qc <- QueryChat$new(
   diamonds,
   "diamonds",
-  client = ellmer::chat("claude/claude-sonnet-4-5"),
+  client = "claude/claude-sonnet-4-5",
   greeting = "diamonds_greeting.md",
   data_description = "diamonds_data_description.md",
   extra_instructions = "diamonds_extra_instructions.md"

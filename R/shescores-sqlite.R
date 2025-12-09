@@ -20,7 +20,7 @@ dbWriteTable(
 qc <- QueryChat$new(
   con,
   "results_with_scorers",
-  client = ellmer::chat("claude/claude-sonnet-4-5"),
+  client = "claude/claude-sonnet-4-5",
   greeting = "shescores_greeting.md",
   data_description = "shescores_data_description.md",
   extra_instructions = "shescores_extra_instructions.md"
