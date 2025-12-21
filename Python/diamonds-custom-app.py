@@ -33,7 +33,7 @@ app_ui = ui.page_sidebar(
     ui.card(
         ui.card_header("SQL Query"),
         ui.output_text_verbatim("sql_output"),
-        fill=True,
+        fill=False,
     ),
     ui.card(
         ui.card_header(ui.output_text("title")),

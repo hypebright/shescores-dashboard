@@ -100,7 +100,7 @@ app_ui = ui.page_sidebar(
 # ===============================
 def server(input, output, session):
     # Reactive filtered data based on inputs
-    @debounce(0.5)
+    @debounce(1)
     @reactive.calc
     def filtered_data():
         req(len(input.continent_filter()) > 0)

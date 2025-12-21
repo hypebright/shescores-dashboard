@@ -44,7 +44,7 @@ server <- function(input, output, session) {
 
   # 3. Display generated SQL query
   output$sql_query <- renderText({
-    if (vals$sql() == "") {
+    if (is.null(vals$sql())) {
       return("SELECT * FROM diamonds;")
     }
     vals$sql()
@@ -57,7 +57,7 @@ server <- function(input, output, session) {
 
   # 5. Dynamic title based on user query
   output$title <- renderText({
-    if (!isTruthy(vals$title())) {
+    if (is.null(vals$title())) {
       return("Diamonds Data")
     }
     vals$title()
