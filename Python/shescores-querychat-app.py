@@ -1,14 +1,11 @@
-from shiny import App, reactive, render, ui, req
+from shiny import App, render, ui
 from dotenv import load_dotenv
 from querychat import QueryChat
-from ratelimit import debounce
 from pathlib import Path
 import pandas as pd
 import plotly.express as px
 from shinywidgets import output_widget, render_widget
 import numpy as np
-# from ipyleaflet import Map, Marker, Icon, basemaps, MarkerCluster
-# from ipywidgets import HTML
 
 load_dotenv()  # Loads key from the .env file
 
@@ -299,62 +296,6 @@ def server(input, output, session):
 
         return fig
 
-    # A lot if issues with shinywidgets and ipyleaflet, so using plotly instead
-    # @render_widget
-    # def map():
-    #     # return base map without any data
-    #     return Map(
-    #         center=(0, 0),
-    #         zoom=2,
-    #         basemap=basemaps.CartoDB.Positron,
-    #     )
-
-    # # When the filtered data changes, update the map
-    # @reactive.effect
-    # def _():
-    #     df = filtered_data.df()
-
-    #     # remove all existing layers except the base layer
-    #     # layers are stored in map.widget.layers, and can be removed with map.widget.remove_layer()
-    #     for layer in map.widget.layers[1:]:
-    #         map.widget.remove_layer(layer)
-
-    #     # filter out rows with missing lat/lon
-    #     locations = df.dropna(subset=["latitude", "longitude"]).copy()
-
-    #     # add year column
-    #     locations["year"] = pd.to_datetime(locations["date"]).dt.year.astype(str)
-
-    #     # group by tournament + lat/lon/city and concatenate years (comma separated)
-    #     # avoid Renderer.__call_error
-    #     grouped = (
-    #         locations.groupby(["tournament", "latitude", "longitude", "city"])["year"]
-    #         .apply(lambda x: ", ".join(sorted(x.unique())))
-    #         .reset_index()
-    #         .rename(columns={"year": "years"})
-    #     )
-
-    #     # add simple markers to app for each location
-    #     markers = []
-    #     for row in grouped.itertuples(index=False):
-    #         markers.append(
-    #             Marker(
-    #                 location=(row.latitude, row.longitude),
-    #                 icon=Icon(
-    #                     icon_url="https://openmoji.org/data/color/svg/26BD.svg",
-    #                     icon_size=[25, 25],
-    #                 ),
-    #                 popup=HTML(
-    #                     value=f"<b>{row.tournament}</b><br/>{row.city}<br/>Years: {row.years}"
-    #                 ),
-    #             )
-    #         )
-
-    #     # update map with new markers
-    #     print("Adding markers to map:", len(markers))
-    #     marker_cluster = MarkerCluster(markers=markers)
-    #     map.widget.add_layer(marker_cluster)
-
     @render.data_frame
     def results_table():
         df = filtered_data.df()
@@ -435,25 +376,6 @@ def server(input, output, session):
                     "style": {"background-color": "#e0e1e2"},
                 },
             ],
-        )
-
-    # Update tournaments based on continent selection
-    @reactive.effect
-    def _():
-        req(input.continent_filter())
-
-        updated_tournaments = (
-            results_with_scorers[
-                results_with_scorers["continent"].isin(input.continent_filter())
-            ]["tournament"]
-            .unique()
-            .tolist()
-        )
-
-        ui.update_select(
-            "tournament_filter",
-            choices=sorted(updated_tournaments),
-            selected=sorted(updated_tournaments),
         )
 
 
